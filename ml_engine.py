@@ -16,6 +16,8 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────
 def load_data(filepath: str) -> pd.DataFrame:
     df = pd.read_csv(filepath)
+    if len(df) > 10000:
+        df = df.sample(n=10000, random_state=42)
     return df
 
 
@@ -129,12 +131,7 @@ def validate_target(df: pd.DataFrame, target_col: str) -> str:
 
     # If it is a string/object/category column, check cardinality
     if series.dtype == "object" or isinstance(series.dtype, pd.CategoricalDtype):
-        if series.nunique() > 20:
-            return (
-                f"Column '{target_col}' cannot be used as a target — "
-                f"it is a text column with {series.nunique()} unique values. "
-                f"Classification targets should have 20 or fewer categories."
-            )
+        pass
     else:
         # For other types, check if they can be converted to numeric
         numeric_series = pd.to_numeric(series, errors="coerce")
@@ -200,12 +197,7 @@ def preprocess(df: pd.DataFrame, target_col: str):
     # Drop rows where target is missing
     df = df.dropna(subset=[target_col])
 
-    # Drop columns with > 50% nulls (excluding target_col to prevent it from being dropped)
-    thresh = len(df) * 0.5
-    cols_to_check = [c for c in df.columns if c != target_col]
-    null_counts = df[cols_to_check].isnull().sum()
-    cols_above_thresh = null_counts[null_counts > (len(df) - thresh)].index.tolist()
-    df = df.drop(columns=cols_above_thresh)
+    # We no longer drop columns with > 50% nulls per user request.
 
     X = df.drop(columns=[target_col])
     y = df[target_col]
@@ -214,10 +206,7 @@ def preprocess(df: pd.DataFrame, target_col: str):
     unnamed = [c for c in X.columns if str(c).lower().startswith("unnamed")]
     X = X.drop(columns=unnamed, errors="ignore")
 
-    # Drop untrainable columns
-    to_drop = [col for col in X.select_dtypes(include="object").columns
-               if _is_droppable_column(X[col])]
-    X = X.drop(columns=to_drop, errors="ignore")
+    # We no longer drop untrainable object columns per user request.
 
     # Encode remaining low-cardinality object columns
     le_map = {}
@@ -260,9 +249,9 @@ def train_model(X, y, task_type: str):
         X, y, test_size=0.2, random_state=42
     )
     if task_type == "classification":
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model = RandomForestClassifier(n_estimators=30, max_depth=10, n_jobs=-1, random_state=42)
     else:
-        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        model = RandomForestRegressor(n_estimators=30, max_depth=10, n_jobs=-1, random_state=42)
 
     model.fit(X_train, y_train)
     return model, X_train, X_test, y_train, y_test
